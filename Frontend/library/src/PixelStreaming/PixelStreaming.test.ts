@@ -282,7 +282,7 @@ describe('PixelStreaming', () => {
         );
     });
 
-    it('should not autoselect a streamer if receiving multiple streamers in streamerList message', () => {
+    it('should autoselect the last streamer if receiving multiple streamers in streamerList message', () => {
         const config = new Config({ initialSettings: {ss: mockSignallingUrl, AutoConnect: true}});
         const streamerId2 = "MOCK_2_PIXEL_STREAMING";
         const extendedStreamerIdList = [streamerId, streamerId2];
@@ -299,11 +299,28 @@ describe('PixelStreaming', () => {
                 type: MessageRecvTypes.STREAMER_LIST,
                 ids: extendedStreamerIdList
             }),
-            autoSelectedStreamerId: null,
+            autoSelectedStreamerId: streamerId2,
             wantedStreamerId: null
         }));
-        expect(webSocketSpyFunctions.sendSpy).not.toHaveBeenCalledWith(
-            expect.stringMatching(/"type":"subscribe"/)
+        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
+            expect.stringMatching(/"type":"subscribe".*MOCK_2_PIXEL_STREAMING/)
+        );
+    });
+
+    it('should select an available streamer when the previously subscribed streamer is gone', () => {
+        const config = new Config({ initialSettings: {ss: mockSignallingUrl, AutoConnect: true}});
+        new PixelStreaming(config);
+        const replacementStreamerId = "REPLACEMENT_PIXEL_STREAMING";
+
+        triggerWebSocketOpen();
+        triggerConfigMessage();
+        triggerStreamerListMessage(streamerIdList);
+        (webSocketSpyFunctions.sendSpy as jest.Mock).mockClear();
+
+        triggerStreamerListMessage([replacementStreamerId]);
+
+        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
+            expect.stringMatching(/"type":"subscribe".*REPLACEMENT_PIXEL_STREAMING/)
         );
     });
 

@@ -59,6 +59,7 @@ module.exports = {
       filename: '[name].js',
       library: 'epicgames-frontend',
       libraryTarget: 'umd',
+      //指定输出目录
       path: path.resolve(__dirname, '../../../SignallingWebServer/Public'),
       clean: true,
       globalObject: 'this',

@@ -20,9 +20,6 @@ module.exports = {
     resolve: {
         extensions: ['.tsx', '.ts', '.js']
     },
-    externals: {
-        sdp: "sdp"
-    },
     plugins: [
         new webpack.DefinePlugin({
             LIBRARY_VERSION: JSON.stringify(package.version)

@@ -1,0 +1,1 @@
+npx esbuild cirrus.js --bundle --platform=node --outfile=../../Pack/SignallingWebServer/app.cjs --metafile=meta.json

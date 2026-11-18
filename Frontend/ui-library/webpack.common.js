@@ -20,12 +20,6 @@ module.exports = {
     resolve: {
         extensions: ['.tsx', '.ts', '.js']
     },
-    externals: {
-        '@epicgames-ps/lib-pixelstreamingfrontend-ue5.3': '@epicgames-ps/lib-pixelstreamingfrontend-ue5.3',
-        jss: 'jss',
-        'jss-plugin-camel-case': 'jss-plugin-camel-case',
-        'jss-plugin-global': 'jss-plugin-global'
-    },
     plugins: [
         new webpack.DefinePlugin({
             LIBRARY_VERSION: JSON.stringify(package.version)

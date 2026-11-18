@@ -499,7 +499,7 @@ export class Config {
                 'Maximum number of reconnects the application will attempt when a streamer disconnects.',
                 0 /*min*/,
                 999 /*max*/,
-                3 /*value*/,
+                300 /*value: wait up to 5 minutes at the default 1-second interval */,
                 useUrlParams
             )
         );
@@ -577,7 +577,7 @@ export class Config {
                 'Delay between retries when waiting for an available streamer.',
                 500 /*min*/,
                 900000 /*max*/,
-                3000 /*value*/,
+                1000 /*value*/,
                 useUrlParams
             )
         );

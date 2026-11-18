@@ -337,6 +337,7 @@ export class Application {
         this.stream.addEventListener('afkTimedOut', () =>
             this.afkOverlay.hide()
         );
+        //add jiangs 通知链接质量
         this.stream.addEventListener(
             'videoEncoderAvgQP',
             ({ data: { avgQP } }) => this.onVideoEncoderAvgQP(avgQP)
@@ -607,14 +608,14 @@ export class Application {
      * Show the webRtcAutoConnect Overlay and connect
      */
     onWebRtcAutoConnect() {
-        this.showTextOverlay('Auto Connecting Now');
+        this.showTextOverlay('正在自动连接');
     }
 
     /**
      * Set up functionality to happen when receiving a webRTC answer
      */
     onWebRtcSdp() {
-        this.showTextOverlay('WebRTC Connection Negotiated');
+        this.showTextOverlay('WebRTC 连接协商完成');
     }
 
     /**
@@ -624,7 +625,7 @@ export class Application {
         // build the spinner span
         const spinnerSpan: HTMLSpanElement = document.createElement('span');
         spinnerSpan.className = 'visually-hidden';
-        spinnerSpan.innerHTML = 'Loading...';
+        spinnerSpan.innerHTML = '正在加载...';
 
         // build the spinner div
         const spinnerDiv: HTMLDivElement = document.createElement('div');
@@ -635,7 +636,7 @@ export class Application {
         // append the spinner to the element
         spinnerDiv.appendChild(spinnerSpan);
 
-        this.showTextOverlay('Loading Stream ' + spinnerDiv.outerHTML);
+        this.showTextOverlay('正在加载流送 ' + spinnerDiv.outerHTML);
     }
 
     /**
@@ -644,9 +645,9 @@ export class Application {
      * @param allowClickToReconnect - true if we want to allow the user to click to reconnect. Otherwise it's just a message.
      */
     onDisconnect(eventString: string, allowClickToReconnect: boolean) {
-        const overlayMessage = 'Disconnected' + (eventString ? `: ${eventString}` : '');
+        const overlayMessage = '连接已断开' + (eventString ? `：${eventString}` : '');
         if (allowClickToReconnect) {
-            this.showDisconnectOverlay(`${overlayMessage} Click To Restart.`);
+            this.showDisconnectOverlay(`${overlayMessage} 点击重新连接。`);
         } else {
             this.showErrorOverlay(overlayMessage);
         }
@@ -658,21 +659,21 @@ export class Application {
      * Handles when Web Rtc is connecting
      */
     onWebRtcConnecting() {
-        this.showTextOverlay('Starting connection to server, please wait');
+        this.showTextOverlay('正在连接服务器，请稍候');
     }
 
     /**
      * Handles when Web Rtc has connected
      */
     onWebRtcConnected() {
-        this.showTextOverlay('WebRTC connected, waiting for video');
+        this.showTextOverlay('WebRTC 已连接，正在等待视频');
     }
 
     /**
      * Handles when Web Rtc fails to connect
      */
     onWebRtcFailed() {
-        this.showErrorOverlay('Unable to setup video');
+        this.showErrorOverlay('无法建立视频连接');
     }
 
     onLoadFreezeFrame(shouldShowPlayOverlay: boolean) {
@@ -691,6 +692,7 @@ export class Application {
     }
 
     onPlayStreamRejected(onRejectedReason: unknown) {
+        //alert("test jiangs onPlayStreamRejected" + onRejectedReason);
         this.showPlayOverlay();
     }
 
@@ -705,6 +707,7 @@ export class Application {
      * Set up functionality to happen when calculating the average video encoder qp
      * @param QP - the quality number of the stream
      */
+    //add jiangs 更新链接质量
     onVideoEncoderAvgQP(QP: number) {
         // Update internal QP indicator if one is present
         if (!!this.videoQpIndicator) {
@@ -744,25 +747,25 @@ export class Application {
         if (!autoSelectedStreamerId) {
             if (waitForStreamer && wantedStreamerId) {
                 if (isReconnecting) {
-                    message = `Waiting for ${wantedStreamerId} to become available.`;
+                    message = `正在等待流送端 ${wantedStreamerId} 可用。`;
                     allowRestart = false;
                 } else {
-                    message = `Gave up waiting for ${wantedStreamerId} to become available. Click to try again`;
+                    message = `等待流送端 ${wantedStreamerId} 可用超时，点击重试`;
                     if (messageStreamingList.ids.length > 0) {
-                        message += ` or select a streamer from the settings menu.`;
+                        message += `，或在设置菜单中选择其他流送端。`;
                     }
                     allowRestart = true;
                 }
             } else if (messageStreamingList.ids.length == 0) {
                 if (isReconnecting) {
-                    message = `Waiting for a streamer to become available.`;
+                    message = `正在等待流送端可用。`;
                     allowRestart = false;
                 } else {
-                    message = `No streamers available. Click to try again.`;
+                    message = `暂无可用流送端，点击重试。`;
                     allowRestart = true;
                 }
             } else {
-                message = `Multiple streamers available. Select one from the settings menu.`;
+                message = `检测到多个流送端，请在设置菜单中选择。`;
                 allowRestart = false;
             }
 

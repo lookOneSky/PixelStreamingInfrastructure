@@ -20,9 +20,10 @@ export class ConnectOverlay extends ActionOverlay {
      * @returns The created content element of this overlay, which contain whatever content this element contains, like text or a button.
      */
     public static createContentElement(): HTMLElement {
+        //add Das 开始按钮
         const connectContentElem = document.createElement('div');
         connectContentElem.id = 'connectButton';
-        connectContentElem.innerHTML = 'Click to start';
+        connectContentElem.innerHTML = '点击开始';
         return connectContentElem;
     }
 

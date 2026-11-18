@@ -131,6 +131,27 @@ export class KeyboardController {
         ContextMenu: 93
     };
 
+    //add Das增加忽视的按钮
+    private ignoreKeys = new Set([
+        'F1',
+        'F2',
+        'F3',
+        'F4',
+        'F5',
+        'F6',
+        'F7',
+        'F8',
+        'F9',
+        'F10',
+        'F11',
+        'F12'
+        //'ControlLeft',
+        //'ControlRight',
+        //'ShiftLeft',
+        //'ShiftRight',
+        //'CapsLock'
+    ].map(key => this.CodeToKeyCode[key]));
+
     /**
      * @param toStreamerMessagesProvider Stream message provider class object
      * @param config The applications configuration. We're interested in the suppress browser keys option
@@ -193,12 +214,16 @@ export class KeyboardController {
             `key down ${keyCode}, repeat = ${keyboardEvent.repeat}`,
             6
         );
-        const toStreamerHandlers =
-            this.toStreamerMessagesProvider.toStreamerHandlers;
-        toStreamerHandlers.get('KeyDown')([
+
+         //add Das 屏蔽按钮
+         if (!this.ignoreKeys.has(keyCode)) {
+            const toStreamerHandlers = this.toStreamerMessagesProvider.toStreamerHandlers;
+            toStreamerHandlers.get('KeyDown')([
             this.getKeycode(keyboardEvent),
             keyboardEvent.repeat ? 1 : 0
-        ]);
+            ]);
+        }
+
         const activeKeys = this.activeKeysProvider.getActiveKeys();
         activeKeys.push(keyCode);
         // Backspace is not considered a keypress in JavaScript but we need it
@@ -229,10 +254,12 @@ export class KeyboardController {
             return;
         }
 
-        Logger.Log(Logger.GetStackTrace(), `key up ${keyCode}`, 6);
-        const toStreamerHandlers =
-            this.toStreamerMessagesProvider.toStreamerHandlers;
-        toStreamerHandlers.get('KeyUp')([ keyCode ]);
+        //add 屏蔽按钮
+        if (!this.ignoreKeys.has(keyCode)) {
+            Logger.Log(Logger.GetStackTrace(), `key up ${keyCode}`, 6);
+            const toStreamerHandlers = this.toStreamerMessagesProvider.toStreamerHandlers;
+            toStreamerHandlers.get('KeyUp')([ keyCode ]);
+        }
 
         if (
             this.config.isFlagEnabled(Flags.SuppressBrowserKeys) &&
@@ -258,9 +285,11 @@ export class KeyboardController {
         const charCode = keyboard.charCode;
         Logger.Log(Logger.GetStackTrace(), `key press ${charCode}`, 6);
 
-        const toStreamerHandlers =
-            this.toStreamerMessagesProvider.toStreamerHandlers;
-        toStreamerHandlers.get('KeyPress')([charCode]);
+        //add Das 屏蔽按钮
+        if (!this.ignoreKeys.has(charCode)) {
+            const toStreamerHandlers = this.toStreamerMessagesProvider.toStreamerHandlers;
+            toStreamerHandlers.get('KeyPress')([charCode]);
+        }
     }
 
     /**

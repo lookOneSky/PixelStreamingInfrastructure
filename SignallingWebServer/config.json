@@ -7,13 +7,19 @@
 	"LogVerbose": true,
 	"HomepageFile": "player.html",
 	"AdditionalRoutes": {},
-	"EnableWebserver": true,
+	"EnableWebserver": false,
 	"MatchmakerAddress": "",
 	"MatchmakerPort": 9999,
 	"PublicIp": "localhost",
-	"HttpPort": 80,
+	"HttpPort": 6888,
 	"HttpsPort": 443,
 	"StreamerPort": 8888,
 	"SFUPort": 8889,
-	"MaxPlayerCount": -1
+	"MaxPlayerCount": -1,
+	"MultiIProgress": false,
+	"Localhost": true,
+	"PixelStreamingEncoderCodec": "VP9",
+	"ResX":1920,
+	"ResY":1080,
+	"SimulcastParameters": 1
 }

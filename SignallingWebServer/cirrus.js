@@ -12,6 +12,9 @@ const bodyParser = require('body-parser');
 const logging = require('./modules/logging.js');
 logging.RegisterConsoleLogger();
 
+// 添加child_process模块用于启动和管理UE程序
+const { spawn, exec } = require('child_process');
+
 // Command line argument --configFile needs to be checked before loading the config, all other command line arguments are dealt with through the config object
 
 const defaultConfig = {
@@ -34,13 +37,25 @@ const defaultConfig = {
 	StreamerPort: 8888,
 	SFUPort: 8889,
 	MaxPlayerCount: -1,
-	DisableSSLCert: true
+	DisableSSLCert: true,
+	UEProgram: null,
+	MultiIProgress: true,
+	Localhost: false,
+	PixelStreamingEncoderCodec: "VP9",
+	ResX: 1920,
+	ResY: 1080,
+	SimulcastParameters: 1
 };
 
 const argv = require('yargs').argv;
 var configFile = (typeof argv.configFile != 'undefined') ? argv.configFile.toString() : path.join(__dirname, 'config.json');
 console.log(`configFile ${configFile}`);
 const config = require('./modules/config.js').init(configFile, defaultConfig);
+
+//add das
+// 添加playerID到进程ID的映射表
+let playerProcessMap = new Map(); // playerId -> process object
+let playerStreamerMap = new Map(); // playerId -> streamerId
 
 if (config.LogToFile) {
 	logging.RegisterFileLogger('./logs/');
@@ -96,6 +111,7 @@ if (config.UseFrontend) {
 
 var streamerPort = config.StreamerPort; // port to listen to Streamer connections
 var sfuPort = config.SFUPort;
+var listenHost = config.Localhost ? '127.0.0.1' : undefined; // 监听地址：true时只监听本地回环，false时监听所有网卡
 
 var matchmakerAddress = '127.0.0.1';
 var matchmakerPort = 9999;
@@ -274,13 +290,15 @@ if(config.EnableWebserver) {
 }
 
 //Setup http and https servers
-http.listen(httpPort, function () {
-	console.logColor(logging.Green, 'Http listening on *: ' + httpPort);
+http.listen(httpPort, listenHost, function () {
+	const hostInfo = listenHost || '*';
+	console.logColor(logging.Green, `Http listening on ${hostInfo}: ${httpPort}`);
 });
 
 if (config.UseHTTPS) {
-	https.listen(httpsPort, function () {
-		console.logColor(logging.Green, 'Https listening on *: ' + httpsPort);
+	https.listen(httpsPort, listenHost, function () {
+		const hostInfo = listenHost || '*';
+		console.logColor(logging.Green, `Https listening on ${hostInfo}: ${httpsPort}`);
 	});
 }
 
@@ -448,6 +466,7 @@ class Player {
 };
 
 let streamers = new Map();		// streamerId <-> streamer
+
 let players = new Map(); 		// playerId <-> player/peer/viewer
 const LegacyStreamerPrefix = "__LEGACY_STREAMER__"; // old streamers that dont know how to ID will be assigned this id prefix.
 const LegacySFUPrefix = "__LEGACY_SFU__"; 					// same as streamer version but for SFUs
@@ -562,6 +581,18 @@ function sanitizeStreamerId(id) {
 }
 
 function registerStreamer(id, streamer) {
+	// Streamer 可能先因识别超时被注册为 Legacy ID，随后才返回真实 ID。
+	// 重命名前必须删除同一连接的旧键，并同步已经订阅该连接的 Player。
+	const previousIds = [];
+	for (const [streamerId, registeredStreamer] of streamers) {
+		if (registeredStreamer === streamer) {
+			previousIds.push(streamerId);
+		}
+	}
+	for (const previousId of previousIds) {
+		streamers.delete(previousId);
+	}
+
 	// make sure the id is unique
 	const uniqueId = sanitizeStreamerId(id);
 	streamer.commitId(uniqueId);
@@ -570,24 +601,42 @@ function registerStreamer(id, streamer) {
 		delete streamer.idTimer;
 	}
 	streamers.set(uniqueId, streamer);
+	for (const player of players.values()) {
+		if (previousIds.includes(player.streamerId)) {
+			player.streamerId = uniqueId;
+		}
+	}
 	console.logColor(logging.Green, `Registered new streamer: ${streamer.id}`);
 }
 
 function onStreamerDisconnected(streamer) {
-	if (!streamer.id || !streamers.has(streamer.id)) {
+	if (streamer.idTimer) {
+		clearTimeout(streamer.idTimer);
+		delete streamer.idTimer;
+	}
+
+	const registeredIds = [];
+	for (const [streamerId, registeredStreamer] of streamers) {
+		if (registeredStreamer === streamer) {
+			registeredIds.push(streamerId);
+		}
+	}
+	if (registeredIds.length === 0) {
 		return;
 	}
 
 	sendStreamerDisconnectedToMatchmaker();
-	let sfuPlayer = getSFUForStreamer(streamer.id);
-	if (sfuPlayer) {
-		const msg = { type: "streamerDisconnected" };
-		logOutgoing(sfuPlayer.id, msg);
-		sfuPlayer.sendTo(msg);
-		disconnectAllPlayers(sfuPlayer.id);
+	for (const streamerId of registeredIds) {
+		let sfuPlayer = getSFUForStreamer(streamerId);
+		if (sfuPlayer) {
+			const msg = { type: "streamerDisconnected" };
+			logOutgoing(sfuPlayer.id, msg);
+			sfuPlayer.sendTo(msg);
+			disconnectAllPlayers(sfuPlayer.id);
+		}
+		disconnectAllPlayers(streamerId);
+		streamers.delete(streamerId);
 	}
-	disconnectAllPlayers(streamer.id);
-	streamers.delete(streamer.id);
 }
 
 function onStreamerMessageId(streamer, msg) {
@@ -644,6 +693,8 @@ streamerMessageHandlers.set('disconnectPlayer', onStreamerMessageDisconnectPlaye
 streamerMessageHandlers.set('layerPreference', onStreamerMessageLayerPreference);
 
 console.logColor(logging.Green, `WebSocket listening for Streamer connections on :${streamerPort}`)
+
+//dd jiangs stream 服务器
 let streamerServer = new WebSocket.Server({ port: streamerPort, backlog: 1 });
 streamerServer.on('connection', function (ws, req) {
 	console.logColor(logging.Green, `Streamer connected: ${req.connection.remoteAddress}`);
@@ -866,8 +917,15 @@ function sendPlayersCount() {
 	}
 }
 
+//dd jiangs palyer 选择steramer
 function onPlayerMessageSubscribe(player, msg) {
 	logIncoming(player.id, msg);
+	const expectedStreamerId = playerStreamerMap.get(player.id);
+	if (expectedStreamerId && msg.streamerId !== expectedStreamerId) {
+		console.logColor(logging.Orange, `Player ${player.id} attempted to subscribe to ${msg.streamerId}, expected ${expectedStreamerId}`);
+		onPlayerMessageListStreamers(player, { type: 'listStreamers' });
+		return;
+	}
 	player.subscribe(msg.streamerId);
 }
 
@@ -880,12 +938,37 @@ function onPlayerMessageStats(player, msg) {
 	console.log(`player ${playerId}: stats\n${msg.data}`);
 }
 
+//add jiangs palyer获取Stremer列表
 function onPlayerMessageListStreamers(player, msg) {
 	logIncoming(player.id, msg);
 
 	let reply = { type: 'streamerList', ids: [] };
+	const expectedStreamerId = playerStreamerMap.get(player.id);
+	if (expectedStreamerId) {
+		if (streamers.has(expectedStreamerId)) {
+			reply.ids.push(expectedStreamerId);
+		}
+		logOutgoing(player.id, reply);
+		player.sendTo(reply);
+		return;
+	}
+
 	for (let [streamerId, streamer] of streamers) {
-		reply.ids.push(streamerId);
+		//add jiangs 已经被使用的Streamer不再返回。单实例模式
+		// 检查该streamer是否已被其他玩家使用
+		let isUsed = false;
+		if (config.MultiIProgress) {
+			for (let [pid, p] of players) {
+				if (p.streamerId === streamerId && pid !== player.id) {
+					isUsed = true;
+					break;
+				}
+			}
+		}
+		// 只添加未被使用的streamer
+		if (!isUsed) {
+			reply.ids.push(streamerId);
+		}
 	}
 
 	logOutgoing(player.id, reply);
@@ -897,14 +980,183 @@ function forwardPlayerMessage(player, msg) {
 	player.sendFrom(msg);
 }
 
+function getPlayerStreamerId(playerId) {
+	return `PlayerStreamer-${playerId}-Session`;
+}
+
+// 启动UE程序的函数
+function startUEProgram(playerId, streamerId = null) {
+	if (!config.UEProgram) {
+		console.logColor(logging.Orange, `UEProgram not configured in config.json, skipping program launch for player ${playerId}`);
+		return null;
+	}
+
+	if (!fs.existsSync(config.UEProgram)) {
+		console.logColor(logging.Red, `UEProgram path does not exist: ${config.UEProgram}`);
+		return null;
+	}
+
+	try {
+		// 构建UE程序启动参数
+		const ueArgs = [
+			'-WINDOWED',
+			'-AllowPixelStreamingCommands',
+			'-ForceRes',
+			`-ResX=${config.ResX}`,
+			`-ResY=${config.ResY}`,
+			'-PixelStreamingHideCursor',
+			'-DisableWindowSizeLimit',
+			'-PixelStreamingIP=localhost',
+			'-SaveToUserDir',
+			`-PixelStreamingPort=${streamerPort}`,
+			...(streamerId ? [`-PixelStreamingID=${streamerId}`] : []),
+			`-PixelStreamingEncoderCodec=${config.PixelStreamingEncoderCodec || 'VP9'}`,
+			`-SimulcastParameters=${config.SimulcastParameters},0,1000000000`,
+			'-RenderOffScreen',
+			//'-PixelStreamingEncoderMinQP=1',
+			//'-PixelStreamingEncoderMaxQP=500000000',
+			'-PixelStreamingWebRTCDisableReceiveAudio',
+			'-PixelStreamingWebRTCDisableTransmitAudio',
+			'-PixelStreamingVPXUseCompute'
+		];
+
+		// 打印完整的启动命令
+		const fullCommand = `"${config.UEProgram}" ${ueArgs.join(' ')}`;
+		console.logColor(logging.Cyan, `=== UE Program Launch Command for Player ${playerId} ===`);
+		console.logColor(logging.Cyan, `Command: ${fullCommand}`);
+		console.logColor(logging.Cyan, `StreamerPort from config: ${streamerPort}`);
+		if (streamerId) {
+			console.logColor(logging.Cyan, `Expected Streamer ID: ${streamerId}`);
+		}
+		console.logColor(logging.Cyan, `================================================`);
+		
+		console.logColor(logging.Green, `Starting UE program for player ${playerId} with pixel streaming parameters`);
+		
+		// 启动UE程序
+		const ueProcess = spawn(config.UEProgram, ueArgs, {
+			detached: false,
+			stdio: 'pipe'
+		});
+
+		// 记录进程ID映射
+		playerProcessMap.set(playerId, ueProcess);
+
+		// 监听进程事件
+		ueProcess.on('spawn', () => {
+			console.logColor(logging.Green, `UE program started successfully for player ${playerId}, PID: ${ueProcess.pid}`);
+			console.logColor(logging.Green, `PixelStreaming configured on port: ${streamerPort}`);
+		});
+
+		ueProcess.on('error', (error) => {
+			console.logColor(logging.Red, `Failed to start UE program for player ${playerId}: ${error.message}`);
+			console.logColor(logging.Red, `Command was: ${fullCommand}`);
+			playerProcessMap.delete(playerId);
+		});
+
+		ueProcess.on('exit', (code, signal) => {
+			console.logColor(logging.Yellow, `UE program for player ${playerId} exited with code ${code}, signal ${signal}`);
+			playerProcessMap.delete(playerId);
+		});
+
+		// 处理程序输出
+		if (ueProcess.stdout) {
+			ueProcess.stdout.on('data', (data) => {
+				if (config.LogVerbose) {
+					console.log(`[UE-${playerId}] ${data.toString().trim()}`);
+				}
+			});
+		}
+
+		if (ueProcess.stderr) {
+			ueProcess.stderr.on('data', (data) => {
+				console.logColor(logging.Orange, `[UE-${playerId}-ERROR] ${data.toString().trim()}`);
+			});
+		}
+
+		return ueProcess;
+	} catch (error) {
+		console.logColor(logging.Red, `Error starting UE program for player ${playerId}: ${error.message}`);
+		return null;
+	}
+}
+
+// 关闭UE程序的函数
+function stopUEProgram(playerId) {
+	const ueProcess = playerProcessMap.get(playerId);
+	if (!ueProcess) {
+		console.logColor(logging.Orange, `No UE program found for player ${playerId}`);
+		return;
+	}
+	//ueProcess childProcess
+	const childProcess = ueProcess.childProcess;
+
+	try {
+		console.logColor(logging.Yellow, `Stopping UE program for player ${playerId}, PID: ${ueProcess.pid}`);
+		
+		// Windows系统：使用taskkill /F /T强制终止进程树
+		if (process.platform === 'win32' && ueProcess.pid) {
+			const { exec } = require('child_process');
+			
+			// 主要方法：使用taskkill /F /T终止进程树
+			const killCommand = `taskkill /F /T /PID ${ueProcess.pid}`;
+			console.logColor(logging.Cyan, `Executing: ${killCommand}`);
+			
+			exec(killCommand, (error, stdout, stderr) => {
+				if (error) {
+					console.logColor(logging.Red, `taskkill /F /T failed for player ${playerId}: ${error.message}`);
+					// 如果进程树终止失败，尝试只终止主进程
+					const killSingleCommand = `taskkill /F /PID ${ueProcess.pid}`;
+					console.logColor(logging.Cyan, `Fallback executing: ${killSingleCommand}`);
+					exec(killSingleCommand, (singleError, singleStdout, singleStderr) => {
+						if (singleError) {
+							console.logColor(logging.Red, `taskkill /F fallback failed for player ${playerId}: ${singleError.message}`);
+						} else {
+							console.logColor(logging.Green, `taskkill /F fallback successful for player ${playerId}`);
+						}
+					});
+				} else {
+					console.logColor(logging.Green, `taskkill /F /T successful for player ${playerId}`);
+					if (stdout) console.logColor(logging.Cyan, `Output: ${stdout.trim()}`);
+				}
+			});
+		} else {
+			// 非Windows系统：使用SIGKILL
+			console.logColor(logging.Yellow, `Non-Windows system, using SIGKILL for player ${playerId}`);
+			try {
+				ueProcess.kill('SIGKILL');
+				console.logColor(logging.Green, `Sent SIGKILL to UE program for player ${playerId}`);
+			} catch (killError) {
+				console.logColor(logging.Red, `SIGKILL failed for player ${playerId}: ${killError.message}`);
+			}
+		}
+		
+		// 延迟清理映射表，给进程时间结束
+		setTimeout(() => {
+			if (playerProcessMap.has(playerId)) {
+				console.logColor(logging.Yellow, `Removing player ${playerId} from process map`);
+				playerProcessMap.delete(playerId);
+			}
+		}, 2000);
+		
+	} catch (error) {
+		console.logColor(logging.Red, `Error stopping UE program for player ${playerId}: ${error.message}`);
+		// 强制从映射表中移除
+		playerProcessMap.delete(playerId);
+	}
+}
+
 function onPlayerDisconnected(playerId) {
 	const player = players.get(playerId);
 	player.unsubscribe();
 	players.delete(playerId);
+	playerStreamerMap.delete(playerId);
 	--playerCount;
 	sendPlayersCount();
 	sendPlayerDisconnectedToFrontend();
 	sendPlayerDisconnectedToMatchmaker();
+	
+	// 关闭对应的UE程序
+	stopUEProgram(playerId);
 }
 
 playerMessageHandlers.set('subscribe', onPlayerMessageSubscribe);
@@ -919,15 +1171,16 @@ playerMessageHandlers.set('dataChannelRequest', forwardPlayerMessage);
 playerMessageHandlers.set('peerDataChannelsReady', forwardPlayerMessage);
 
 console.logColor(logging.Green, `WebSocket listening for Players connections on :${httpPort}`);
-let playerServer = new WebSocket.Server({ server: config.UseHTTPS ? https : http});
+
+//dd jiangs 浏览器服务器
+let playerServer = new WebSocket.Server({ server: config.UseHTTPS ? https : http });
 playerServer.on('connection', function (ws, req) {
 	var url = require('url');
 	const parsedUrl = url.parse(req.url);
 	const urlParams = new URLSearchParams(parsedUrl.search);
 	const whoSendsOffer = urlParams.has('OfferToReceive') && urlParams.get('OfferToReceive') !== 'false' ? WhoSendsOffer.Browser : WhoSendsOffer.Streamer;
 
-	if (playerCount + 1 > maxPlayerCount && maxPlayerCount !== -1)
-	{
+	if (playerCount + 1 > maxPlayerCount && maxPlayerCount !== -1) {
 		console.logColor(logging.Red, `new connection would exceed number of allowed concurrent connections. Max: ${maxPlayerCount}, Current ${playerCount}`);
 		ws.close(1013, `too many connections. max: ${maxPlayerCount}, current: ${playerCount}`);
 		return;
@@ -935,11 +1188,25 @@ playerServer.on('connection', function (ws, req) {
 
 	++playerCount;
 	let playerId = sanitizePlayerId(nextPlayerId++);
+
+	//新的连接
 	console.logColor(logging.Green, `player ${playerId} (${req.connection.remoteAddress}) connected`);
 	let player = new Player(playerId, ws, PlayerType.Regular, whoSendsOffer);
 	players.set(playerId, player);
 
-	ws.on('message', (msgRaw) =>{
+	// 启动对应的UE程序
+	if (!config.MultiIProgress && playerProcessMap.size > 0) {
+		console.logColor(logging.Green, `UE program already started for player ${playerId}`);
+	} else {
+		let expectedStreamerId = null;
+		if (config.MultiIProgress && config.UEProgram) {
+			expectedStreamerId = getPlayerStreamerId(playerId);
+			playerStreamerMap.set(playerId, expectedStreamerId);
+		}
+		startUEProgram(playerId, expectedStreamerId);
+	}
+
+	ws.on('message', (msgRaw) => {
 		var msg;
 		try {
 			msg = JSON.parse(msgRaw);
@@ -968,12 +1235,13 @@ playerServer.on('connection', function (ws, req) {
 		handler(player, msg);
 	});
 
-	ws.on('close', function(code, reason) {
+	ws.on('close', function (code, reason) {
+		//结束进程
 		console.logColor(logging.Yellow, `player ${playerId} connection closed: ${code} - ${reason}`);
 		onPlayerDisconnected(playerId);
 	});
 
-	ws.on('error', function(error) {
+	ws.on('error', function (error) {
 		console.error(`player ${playerId} connection error: ${error}`);
 		ws.close(1006 /* abnormal closure */, error);
 		onPlayerDisconnected(playerId);
@@ -992,10 +1260,10 @@ function disconnectAllPlayers(streamerId) {
 	console.log(`unsubscribing all players on ${streamerId}`);
 	let clone = new Map(players);
 	for (let player of clone.values()) {
-		 if (player.streamerId == streamerId) {
-		 	// disconnect players but just unsubscribe the SFU
-		 	const sfuPlayer = getSFUForStreamer(streamerId);
-		 	if (sfuPlayer && player.id == sfuPlayer.id) {
+		if (player.streamerId == streamerId) {
+			// disconnect players but just unsubscribe the SFU
+			const sfuPlayer = getSFUForStreamer(streamerId);
+			if (sfuPlayer && player.id == sfuPlayer.id) {
 				sfuPlayer.unsubscribe();
 			} else {
 				player.ws.close();
@@ -1011,7 +1279,7 @@ function disconnectAllPlayers(streamerId) {
 if (config.UseMatchmaker) {
 	var matchmaker = new net.Socket();
 
-	matchmaker.on('connect', function() {
+	matchmaker.on('connect', function () {
 		console.log(`Cirrus connected to Matchmaker ${matchmakerAddress}:${matchmakerPort}`);
 
 		// message.playerConnected is a new variable sent from the SS to help track whether or not a player 
@@ -1020,7 +1288,7 @@ if (config.UseMatchmaker) {
 		var playerConnected = false;
 
 		// Set the playerConnected flag to tell the MM if there is already a player active (i.e., don't send a new one here)
-		if( players && players.size > 0) {
+		if (players && players.size > 0) {
 			playerConnected = true;
 		}
 
@@ -1029,7 +1297,7 @@ if (config.UseMatchmaker) {
 			type: 'connect',
 			address: typeof serverPublicIp === 'undefined' ? '127.0.0.1' : serverPublicIp,
 			https: config.UseHTTPS,
-			port: config.UseHTTPS ? httpsPort : httpPort,
+			port: config.UseHTTPS ? httpsPort : httpPort,//修改mathcMaker重定向网页
 			ready: streamers.size > 0,
 			playerConnected: playerConnected
 		};
@@ -1047,8 +1315,8 @@ if (config.UseMatchmaker) {
 
 	matchmaker.on('close', (hadError) => {
 		console.logColor(logging.Blue, 'Setting Keep Alive to true');
-        matchmaker.setKeepAlive(true, 60000); // Keeps it alive for 60 seconds
-		
+		matchmaker.setKeepAlive(true, 60000); // Keeps it alive for 60 seconds
+
 		console.log(`Matchmaker connection closed (hadError=${hadError})`);
 
 		reconnect();
@@ -1062,13 +1330,13 @@ if (config.UseMatchmaker) {
 	// Try to reconnect to the Matchmaker after a given period of time
 	function reconnect() {
 		console.log(`Try reconnect to Matchmaker in ${matchmakerRetryInterval} seconds`)
-		setTimeout(function() {
+		setTimeout(function () {
 			connect();
 		}, matchmakerRetryInterval * 1000);
 	}
 
 	function registerMMKeepAlive() {
-		setInterval(function() {
+		setInterval(function () {
 			message = {
 				type: 'ping'
 			};
@@ -1163,7 +1431,7 @@ function sendServerDisconnect() {
 					console.error(err);
 				}
 			});
-	} catch(err) {
+	} catch (err) {
 		console.logColor(logging.Red, `ERROR::: sendServerDisconnect error: ${err.message}`);
 	}
 }
@@ -1193,7 +1461,7 @@ function sendPlayerConnectedToFrontend() {
 					console.error(err);
 				}
 			});
-	} catch(err) {
+	} catch (err) {
 		console.logColor(logging.Red, `ERROR::: sendPlayerConnectedToFrontend error: ${err.message}`);
 	}
 }
@@ -1224,7 +1492,7 @@ function sendPlayerDisconnectedToFrontend() {
 					console.error(err);
 				}
 			});
-	} catch(err) {
+	} catch (err) {
 		console.logColor(logging.Red, `ERROR::: sendPlayerDisconnectedToFrontend error: ${err.message}`);
 	}
 }
@@ -1284,3 +1552,128 @@ function sendPlayerDisconnectedToMatchmaker() {
 		console.logColor(logging.Red, `ERROR sending clientDisconnected: ${err.message}`);
 	}
 }
+
+// 同步清理，用于 exit 事件（exit 事件不支持异步操作）
+function cleanupAllUEProgramsSync() {
+	const { execSync } = require('child_process');
+	for (let [playerId, ueProcess] of playerProcessMap) {
+		if (process.platform === 'win32' && ueProcess.pid) {
+			try {
+				execSync(`taskkill /F /T /PID ${ueProcess.pid}`);
+			} catch (e) {
+				try { execSync(`taskkill /F /PID ${ueProcess.pid}`); } catch (_) {}
+			}
+		} else {
+			try { ueProcess.kill('SIGKILL'); } catch (_) {}
+		}
+	}
+	playerProcessMap.clear();
+}
+
+// 清理所有UE程序的函数
+function cleanupAllUEPrograms() {
+	console.logColor(logging.Yellow, 'Cleaning up all UE programs...');
+	const promises = [];
+
+	for (let [playerId, ueProcess] of playerProcessMap) {
+		try {
+			console.logColor(logging.Yellow, `Stopping UE program for player ${playerId}, PID: ${ueProcess.pid}`);
+
+			// Windows系统：使用taskkill /F /T强制终止进程树
+			if (process.platform === 'win32' && ueProcess.pid) {
+				const { exec } = require('child_process');
+				const killCommand = `taskkill /F /T /PID ${ueProcess.pid}`;
+				console.logColor(logging.Cyan, `Executing cleanup: ${killCommand}`);
+
+				const promise = new Promise((resolve) => {
+					exec(killCommand, (error, stdout, stderr) => {
+						if (error) {
+							console.logColor(logging.Red, `Cleanup taskkill /F /T failed for player ${playerId}: ${error.message}`);
+							// 尝试单个进程终止
+							exec(`taskkill /F /PID ${ueProcess.pid}`, (singleError, singleStdout, singleStderr) => {
+								if (!singleError) {
+									console.logColor(logging.Green, `Cleanup fallback successful for player ${playerId}`);
+								}
+								resolve();
+							});
+						} else {
+							console.logColor(logging.Green, `Cleanup taskkill /F /T successful for player ${playerId}`);
+							resolve();
+						}
+					});
+				});
+				promises.push(promise);
+			} else {
+				// 非Windows系统：使用SIGKILL
+				try {
+					ueProcess.kill('SIGKILL');
+					console.logColor(logging.Green, `Cleanup SIGKILL sent for player ${playerId}`);
+				} catch (killError) {
+					console.logColor(logging.Red, `Cleanup SIGKILL failed for player ${playerId}: ${killError.message}`);
+				}
+			}
+
+		} catch (error) {
+			console.logColor(logging.Red, `Error during cleanup for player ${playerId}: ${error.message}`);
+		}
+	}
+
+	// 等待所有终止命令完成后清理映射表
+	Promise.allSettled(promises).then(() => {
+		playerProcessMap.clear();
+		console.logColor(logging.Green, 'All UE programs cleanup completed');
+	});
+}
+
+// 处理服务器关闭信号
+process.on('SIGTERM', () => {
+	console.logColor(logging.Yellow, 'Received SIGTERM, shutting down gracefully...');
+	cleanupAllUEPrograms();
+	process.exit(0);
+});
+
+process.on('SIGINT', () => {
+	console.logColor(logging.Yellow, 'Received SIGINT, shutting down gracefully...');
+	cleanupAllUEPrograms();
+	process.exit(0);
+});
+
+// 处理未捕获的异常
+process.on('uncaughtException', (error) => {
+	console.logColor(logging.Red, `Uncaught Exception: ${error.message}`);
+	console.error(error.stack);
+	cleanupAllUEPrograms();
+	process.exit(1);
+});
+
+// 处理未处理的Promise拒绝
+process.on('unhandledRejection', (reason, promise) => {
+	console.logColor(logging.Red, `Unhandled Rejection at: ${promise}, reason: ${reason}`);
+	cleanupAllUEPrograms();
+	process.exit(1);
+});
+
+console.logColor(logging.Green, 'SignallingWebServer started with UE program management enabled');
+console.logColor(logging.Cyan, `UE Program path: ${config.UEProgram || 'Not configured'}`);
+
+if (process.platform === 'win32') {
+  process.on('SIGHUP', () => {
+    console.logColor(logging.Yellow, 'Received SIGHUP, shutting down gracefully...');
+    cleanupAllUEPrograms();
+    process.exit(0);
+  });
+  // 控制台窗口关闭（点击 X）触发 SIGBREAK
+  process.on('SIGBREAK', () => {
+    console.logColor(logging.Yellow, 'Received SIGBREAK (console closed), shutting down...');
+    cleanupAllUEPrograms();
+    process.exit(0);
+  });
+}
+
+process.on('beforeExit', (code) => {
+  cleanupAllUEPrograms();
+});
+
+process.on('exit', (code) => {
+  cleanupAllUEProgramsSync();
+});

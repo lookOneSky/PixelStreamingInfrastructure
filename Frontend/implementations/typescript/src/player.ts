@@ -2,13 +2,15 @@
 
 export * from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.3';
 export * from '@epicgames-ps/lib-pixelstreamingfrontend-ui-ue5.3';
-import { Config, PixelStreaming } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.3';
+import { Config, PixelStreaming, Flags } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.3';
 import { Application, PixelStreamingApplicationStyle } from '@epicgames-ps/lib-pixelstreamingfrontend-ui-ue5.3';
 const PixelStreamingApplicationStyles =
     new PixelStreamingApplicationStyle();
 PixelStreamingApplicationStyles.applyStyleSheet();
 
 document.body.onload = function() {
+	//创建嵌套过程
+	
 	// Example of how to set the logger level
 	// Logger.SetLoggerVerbosity(10);
 
@@ -17,6 +19,7 @@ document.body.onload = function() {
 
 	// Create a Native DOM delegate instance that implements the Delegate interface class
 	const stream = new PixelStreaming(config);
+	stream.config.setFlagEnabled(Flags.MatchViewportResolution, true);
 
 	const application = new Application({
 		stream,
