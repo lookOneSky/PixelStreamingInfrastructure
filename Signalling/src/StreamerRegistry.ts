@@ -181,7 +181,7 @@ export class StreamerRegistry extends EventEmitter {
         const requestedId = typeof message.id === 'string' ? message.id : '';
 
         // id might conflict or be invalid so here we sanitize it
-        const sanitizedId = this.sanitizeStreamerId(requestedId);
+        const sanitizedId = this.sanitizeStreamerId(requestedId, streamer);
 
         let committedId: string | null = sanitizedId;
         if (this.authorizeStreamerId) {
@@ -227,30 +227,21 @@ export class StreamerRegistry extends EventEmitter {
         );
     }
 
-    private sanitizeStreamerId(id: string): string {
+    private sanitizeStreamerId(id: string, current?: IStreamer): string {
         // create a default id if none supplied
         if (!id) {
             id = this.defaultStreamerIdPrefix;
         }
 
-        // search for existing streamerId and optionally append a numeric value
-        let maxPostfix = -1;
-        for (const streamer of this.streamers) {
-            const idMatchRegex = /^(.*?)(\d*)$/;
-
-            const [, baseId, postfix] = streamer.streamerId.match(idMatchRegex)!;
-            // if the id is numeric then base id will be empty and we need to compare with the postfix
-            if ((baseId !== '' && baseId !== id) || (baseId === '' && postfix !== id)) {
-                continue;
-            }
-            const numPostfix = Number(postfix);
-            if (numPostfix > maxPostfix) {
-                maxPostfix = numPostfix;
-            }
+        // A connection can confirm its own name again. Only names held by another connection collide.
+        const taken = new Set(
+            this.streamers.filter((streamer) => streamer !== current).map((streamer) => streamer.streamerId)
+        );
+        let candidate = id;
+        let suffix = 0;
+        while (taken.has(candidate)) {
+            candidate = id + ++suffix;
         }
-        if (maxPostfix >= 0) {
-            return id + (maxPostfix + 1);
-        }
-        return id;
+        return candidate;
     }
 }

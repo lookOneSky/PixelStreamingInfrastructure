@@ -745,7 +745,7 @@ export class Config {
                 settings &&
                     Object.prototype.hasOwnProperty.call(settings, NumericParameters.MaxReconnectAttempts)
                     ? settings[NumericParameters.MaxReconnectAttempts]
-                    : 3 /*value*/,
+                    : 300 /*value*/,
                 useUrlParams
             )
         );
@@ -896,7 +896,7 @@ export class Config {
                 settings &&
                     Object.prototype.hasOwnProperty.call(settings, NumericParameters.StreamerAutoJoinInterval)
                     ? settings[NumericParameters.StreamerAutoJoinInterval]
-                    : 3000 /*value*/,
+                    : 1000 /*value*/,
                 useUrlParams
             )
         );

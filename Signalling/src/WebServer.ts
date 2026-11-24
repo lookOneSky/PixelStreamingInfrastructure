@@ -47,6 +47,9 @@ export interface IWebServerConfig {
     // The port to run the webserver on. 80 by default.
     httpPort: number;
 
+    // When supplied, bind both HTTP and HTTPS to this interface.
+    host?: string;
+
     // The root of the serve directory. Current working directory by default.
     root: string;
 
@@ -94,7 +97,7 @@ export class WebServer {
         // only listen on the http port if we're not using https or if we want to redirect
         if (!config.httpsPort || config.https_redirect) {
             this.httpServer = http.createServer(app);
-            this.httpServer.listen(config.httpPort, () => {
+            this.httpServer.listen({ port: config.httpPort, host: config.host }, () => {
                 Logger.info(`Http server listening on port ${config.httpPort}`);
             });
         }
@@ -105,7 +108,7 @@ export class WebServer {
         if (config.httpsPort) {
             const options = { key: config.ssl_key, cert: config.ssl_cert };
             this.httpsServer = https.createServer(options, app);
-            this.httpsServer.listen(config.httpsPort, () => {
+            this.httpsServer.listen({ port: config.httpsPort, host: config.host }, () => {
                 Logger.info(`Https server listening on port ${config.httpsPort}`);
             });
 

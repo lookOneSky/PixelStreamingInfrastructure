@@ -23,6 +23,8 @@ import {
 import { configureListenHosts } from './listenHosts';
 import { createTurnCredentialsProvider, hasCredentiallessTurnServer } from './turnCredentials';
 import { initInputHandler } from './InputHandler';
+import { addMatchmakerOptions, attachMatchmaker } from './matchmaker';
+import { addUEProgramOptions, attachUEProgramSessions, booleanValue } from './ueProgram';
 import { Command, Option } from 'commander';
 import { initialize } from 'express-openapi';
 import configHandler from './paths/config';
@@ -41,12 +43,13 @@ const MINIMUM_TOKEN_LENGTH = 16;
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 // possible config file options
 let config_file: IProgramOptions = {};
+const serverRoot = path.extname(__filename) === '.cjs' ? __dirname : path.resolve(__dirname, '..');
 const configArgsParser = new Command()
     .option('--no_config', 'Skips the reading of the config file. Only CLI options will be used.', false)
     .option(
-        '--config_file <path>',
+        '--configFile, --config_file <path>',
         'Sets the path of the config file.',
-        `${path.resolve(__dirname, '..', 'config.json')}`
+        path.join(serverRoot, 'config.json')
     )
     .helpOption(false)
     .allowUnknownOption() // ignore unknown options as we are doing a minimal parse here
@@ -69,6 +72,8 @@ if (!configArgsParser.no_config) {
 }
 
 const program = new Command();
+addUEProgramOptions(program, config_file);
+addMatchmakerOptions(program, config_file);
 program
     .name('node dist/index.js')
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
@@ -113,19 +118,19 @@ program
             .preset(config_file.console_messages || 'basic')
     )
     .option(
-        '--streamer_port <port>',
+        '--StreamerPort, --streamer_port <port>',
         'Sets the listening port for streamer connections.',
-        config_file.streamer_port || '8888'
+        config_file.streamer_port ?? config_file.StreamerPort ?? '8888'
     )
     .option(
-        '--player_port <port>',
+        '--HttpPort, --player_port <port>',
         'Sets the listening port for player connections.',
-        config_file.player_port || '80'
+        config_file.player_port ?? config_file.HttpPort ?? '80'
     )
     .option(
-        '--sfu_port <port>',
+        '--SFUPort, --sfu_port <port>',
         'Sets the listening port for SFU connections.',
-        config_file.sfu_port || '8889'
+        config_file.sfu_port ?? config_file.SFUPort ?? '8889'
     )
     .option(
         '--streamer_host <address>',
@@ -147,22 +152,31 @@ program
         'Disconnect a player after this many milliseconds without a keepalive response. 0 = disabled',
         config_file.player_keepalive_timeout || '30000'
     )
-    .option('--serve', 'Enables the webserver on player_port.', config_file.serve || false)
+    .option(
+        '--EnableWebserver, --serve [boolean]',
+        'Enables the webserver on player_port.',
+        booleanValue,
+        config_file.serve ?? config_file.EnableWebserver ?? false
+    )
     .option(
         '--http_root <path>',
         'Sets the path for the webserver root.',
-        config_file.http_root || `${path.resolve(__dirname, '..', 'www')}`
+        config_file.http_root || path.join(serverRoot, 'www')
     )
     .option(
         '--homepage <filename>',
         'The default html file to serve on the web server.',
-        config_file.homepage || 'player.html'
+        config_file.homepage ?? config_file.HomepageFile ?? 'player.html'
     )
-    .option('--https', 'Enables the webserver on https_port and enabling SSL', config_file.https || false)
+    .option(
+        '--https',
+        'Enables the webserver on https_port and enabling SSL',
+        config_file.https ?? config_file.UseHTTPS ?? false
+    )
     .addOption(
         new Option('--https_port <port>', 'Sets the listen port for the https server.')
             .implies({ https: true })
-            .default(config_file.https_port || 443)
+            .default(config_file.https_port ?? config_file.HttpsPort ?? 443)
     )
     .option(
         '--ssl_key_path <path>',
@@ -481,6 +495,8 @@ if (sfuToken) {
 }
 
 configureListenHosts(options, serverOpts);
+const playerHost = options.Localhost ? '127.0.0.1' : undefined;
+if (playerHost) serverOpts.playerWsOptions = { ...serverOpts.playerWsOptions, host: playerHost };
 
 let restApiToken = '';
 try {
@@ -551,10 +567,11 @@ if (options.turn_secret) {
     );
 }
 
-const shouldServerStart = options.serve || options.rest_api;
+const shouldServerStart = options.serve || options.rest_api || options.https;
 if (shouldServerStart) {
     const webserverOptions: IWebServerConfig = {
         httpPort: options.player_port,
+        host: playerHost,
         root: options.http_root,
         homepageFile: options.homepage,
         serveStatic: options.serve
@@ -586,8 +603,8 @@ if (shouldServerStart) {
 
     if (options.https) {
         webserverOptions.httpsPort = options.https_port;
-        const sslKeyPath = path.join(__dirname, '..', options.ssl_key_path);
-        const sslCertPath = path.join(__dirname, '..', options.ssl_cert_path);
+        const sslKeyPath = path.resolve(serverRoot, options.ssl_key_path);
+        const sslCertPath = path.resolve(serverRoot, options.ssl_cert_path);
         if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
             Logger.info(`Reading SSL key and cert. Key path: ${sslKeyPath} | Cert path: ${sslCertPath}`);
             webserverOptions.ssl_key = fs.readFileSync(sslKeyPath);
@@ -605,6 +622,8 @@ if (shouldServerStart) {
 }
 
 const signallingServer = new SignallingServer(serverOpts);
+attachUEProgramSessions(signallingServer, options, streamerToken);
+attachMatchmaker(signallingServer, options);
 
 if (options.stdin) {
     initInputHandler(options, signallingServer);
@@ -625,17 +644,14 @@ if (options.rest_api) {
         app,
         docsPath: '/api-definition',
         exposeApiDocs: true,
-        apiDoc: './apidoc/api-definition-base.yml',
+        apiDoc: path.join(serverRoot, 'apidoc', 'api-definition-base.yml'),
         paths: [
-            { path: '/config', module: configHandler },
-            { path: '/players', module: playersHandler },
-            { path: '/players/{playerId}', module: playerByIdHandler },
-            { path: '/status', module: statusHandler },
-            { path: '/streamers', module: streamersHandler },
-            { path: '/streamers/{streamerId}', module: streamerByIdHandler }
-        ],
-        dependencies: {
-            signallingServer
-        }
+            { path: '/config', module: configHandler(signallingServer) },
+            { path: '/players', module: playersHandler(signallingServer) },
+            { path: '/players/{playerId}', module: playerByIdHandler(signallingServer) },
+            { path: '/status', module: statusHandler(signallingServer) },
+            { path: '/streamers', module: streamersHandler(signallingServer) },
+            { path: '/streamers/{streamerId}', module: streamerByIdHandler(signallingServer) }
+        ]
     }).catch((err: unknown) => Logger.error(`REST API initialization failed: ${String(err)}`));
 }

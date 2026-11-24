@@ -1,0 +1,23 @@
+{
+  "name": "impvue-pixelstreaming",
+  "version": "0.1.0",
+  "description": "像素流送前端Vue实现",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "@epicgames-ps/lib-pixelstreamingfrontend-ue5.8": "file:../library",
+    "@epicgames-ps/lib-pixelstreamingfrontend-ui-ue5.8": "file:../ui-library",
+    "vue": "^3.3.4",
+    "element-plus": "^2.3.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.0.4",
+    "vite": "^6.4.6",
+    "sass": "^1.62.1"
+  },
+  "private": true
+}

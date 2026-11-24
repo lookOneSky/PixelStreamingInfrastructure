@@ -1254,7 +1254,8 @@ export class WebRtcPlayerController {
         // first we figure out a wanted streamer id through various means
         const useUrlParams = this.config.useUrlParams;
         const urlParams = new IURLSearchParams(window.location.search);
-        if (useUrlParams && urlParams.has(OptionParameters.StreamerId)) {
+        const hasExplicitStreamerId = useUrlParams && urlParams.has(OptionParameters.StreamerId);
+        if (hasExplicitStreamerId) {
             // if we've set the streamer id on the url we only want that streamer id
             wantedStreamerId = urlParams.get(OptionParameters.StreamerId);
         } else if (this.subscribedStream) {
@@ -1266,9 +1267,9 @@ export class WebRtcPlayerController {
         if (wantedStreamerId && messageStreamerList.ids.includes(wantedStreamerId)) {
             // if the wanted stream is in the list. we pick that
             autoSelectedStreamerId = wantedStreamerId;
-        } else if ((!wantedStreamerId || !waitForStreamer) && messageStreamerList.ids.length == 1) {
-            // otherwise, if we're not waiting for the wanted streamer and there's only one streamer, connect to it
-            autoSelectedStreamerId = messageStreamerList.ids[0];
+        } else if ((!hasExplicitStreamerId || !waitForStreamer) && messageStreamerList.ids.length > 0) {
+            // Prefer the newest available streamer when no explicit selection requires waiting.
+            autoSelectedStreamerId = messageStreamerList.ids[messageStreamerList.ids.length - 1];
         }
 
         // if we found a streamer id to auto select, select it

@@ -23,7 +23,7 @@ export class DisconnectOverlay extends ActionOverlay {
         // build the inner html container
         const disconnectOverlayHtmlContainer = document.createElement('div');
         disconnectOverlayHtmlContainer.id = 'disconnectButton';
-        disconnectOverlayHtmlContainer.innerHTML = 'Click To Restart';
+        disconnectOverlayHtmlContainer.innerHTML = '点击重新连接';
 
         return disconnectOverlayHtmlContainer;
     }

@@ -209,28 +209,19 @@ describe('PixelStreaming', () => {
         expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
             expect.stringMatching(/"type":"listStreamers"/)
         );
-        // We don't have a signalling server to respond with data so lets just fake a response with no streamers
+        // The initial request is followed by three retries, one second after each empty response.
+        for (let retry = 1; retry <= 3; retry++) {
+            triggerStreamerListMessage([]);
+            jest.advanceTimersByTime(999);
+            expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledTimes(retry);
+            jest.advanceTimersByTime(1);
+            expect(webSocketSpyFunctions.sendSpy).toHaveBeenNthCalledWith(
+                retry + 1, expect.stringMatching(/"type":"listStreamers"/)
+            );
+        }
         triggerStreamerListMessage([]);
-        // Wait 2 seconds. This delay waits for the WebRtcPlayerController to realise the previously received list doesn't contain
-        // the streamer is was previously subscribed to, so it'll request the list again
-        jest.advanceTimersByTime(2000);
-
-        // Same as above but repeated for the second call
-        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
-            expect.stringMatching(/"type":"listStreamers"/)
-        );
-        triggerStreamerListMessage([]);
-        jest.advanceTimersByTime(2000);
-
-        // Expect the third call
-        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
-            expect.stringMatching(/"type":"listStreamers"/)
-        );
-        triggerStreamerListMessage([]);
-        jest.advanceTimersByTime(2000);
-
-        // We should expect only 3 calls based on our config
-        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledTimes(3);
+        jest.advanceTimersByTime(1000);
+        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledTimes(4);
     });
 
     it('should request streamer list when connected to the signalling server', () => {
@@ -267,7 +258,7 @@ describe('PixelStreaming', () => {
         );
     });
 
-    it('should not auto select a streamer if receiving multiple streamers in streamerList message', () => {
+    it('should auto select the last streamer if receiving multiple streamers in streamerList message', () => {
         const config = new Config({ initialSettings: {ss: mockSignallingUrl, AutoConnect: true}});
         const streamerId2 = "MOCK_2_PIXEL_STREAMING";
         const extendedStreamerIdList = [streamerId, streamerId2];
@@ -284,11 +275,28 @@ describe('PixelStreaming', () => {
                 type: Messages.streamerList.typeName,
                 ids: extendedStreamerIdList
             }),
-            autoSelectedStreamerId: '',
+            autoSelectedStreamerId: streamerId2,
             wantedStreamerId: ''
         }));
-        expect(webSocketSpyFunctions.sendSpy).not.toHaveBeenCalledWith(
-            expect.stringMatching(/"type":"subscribe"/)
+        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
+            expect.stringMatching(/"type":"subscribe".*MOCK_2_PIXEL_STREAMING/)
+        );
+    });
+
+    it('should select an available streamer when the previously subscribed streamer is gone', () => {
+        const config = new Config({ initialSettings: {ss: mockSignallingUrl, AutoConnect: true}});
+        new PixelStreaming(config);
+        triggerWebSocketOpen();
+        triggerConfigMessage();
+        triggerStreamerListMessage(streamerIdList);
+        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
+            expect.stringMatching(/"type":"subscribe".*MOCK_PIXEL_STREAMING/)
+        );
+
+        triggerStreamerListMessage(['REPLACEMENT_PIXEL_STREAMING']);
+
+        expect(webSocketSpyFunctions.sendSpy).toHaveBeenCalledWith(
+            expect.stringMatching(/"type":"subscribe".*REPLACEMENT_PIXEL_STREAMING/)
         );
     });
 

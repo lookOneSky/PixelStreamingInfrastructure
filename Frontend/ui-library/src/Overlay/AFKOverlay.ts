@@ -23,7 +23,7 @@ export class AFKOverlay extends ActionOverlay {
         const afkOverlayHtmlInner = document.createElement('div');
         afkOverlayHtmlInner.id = 'afkOverlayInner';
         afkOverlayHtmlInner.innerHTML =
-            '<center>No activity detected<br>Disconnecting in <span id="afkCountDownNumber"></span> seconds<br>Click to continue<br></center>';
+            '<center>未检测到操作<br><span id="afkCountDownNumber"></span> 秒后断开连接<br>点击继续<br></center>';
         return afkOverlayHtmlInner;
     }
 
@@ -44,6 +44,6 @@ export class AFKOverlay extends ActionOverlay {
      * @param countdown - the count down number to be inserted into the span for updating
      */
     public updateCountdown(countdown: number): void {
-        this.textElement.innerHTML = `<center>No activity detected<br>Disconnecting in <span id="afkCountDownNumber">${countdown}</span> seconds<br>Click to continue<br></center>`;
+        this.textElement.innerHTML = `<center>未检测到操作<br><span id="afkCountDownNumber">${countdown}</span> 秒后断开连接<br>点击继续<br></center>`;
     }
 }

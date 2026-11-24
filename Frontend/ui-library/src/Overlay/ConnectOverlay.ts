@@ -22,7 +22,7 @@ export class ConnectOverlay extends ActionOverlay {
     public static createContentElement(): HTMLElement {
         const connectContentElem = document.createElement('div');
         connectContentElem.id = 'connectButton';
-        connectContentElem.innerHTML = 'Click to start';
+        connectContentElem.innerHTML = '点击开始';
         return connectContentElem;
     }
 

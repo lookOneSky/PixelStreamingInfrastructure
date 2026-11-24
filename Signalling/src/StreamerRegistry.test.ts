@@ -11,6 +11,24 @@ function unconnectedStreamer(): StreamerConnection {
 }
 
 describe('StreamerRegistry endpointId handling', () => {
+    it('keeps a repeated endpoint id stable and disambiguates collisions on ids ending in digits', () => {
+        const registry = new StreamerRegistry();
+        const first = unconnectedStreamer();
+        const second = unconnectedStreamer();
+        registry.add(first);
+        registry.add(second);
+        const identify = { type: Messages.endpointId.typeName, id: 'stream42' };
+        first.protocol.emit(Messages.endpointId.typeName, identify);
+        first.protocol.emit(Messages.endpointId.typeName, identify);
+        second.protocol.emit(Messages.endpointId.typeName, identify);
+
+        expect(first.streamerId).toBe('stream42');
+        expect(second.streamerId).toBe('stream421');
+        registry.remove(first);
+        expect(registry.find('stream42')).toBeUndefined();
+        expect(registry.find('stream421')).toBe(second);
+    });
+
     it('treats a non-string id as no id, so a later registration still works', () => {
         const registry = new StreamerRegistry();
         const first = unconnectedStreamer();

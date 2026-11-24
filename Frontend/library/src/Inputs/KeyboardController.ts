@@ -49,8 +49,15 @@ export class KeyboardController implements IInputController {
             return;
         }
 
+        if (this.config.isFlagEnabled(Flags.SuppressBrowserKeys) && this.isKeyCodeBrowserKey(keyCode)) {
+            keyboardEvent.preventDefault();
+        }
+        if (this.isFunctionKey(keyCode)) {
+            return;
+        }
+
         const toStreamerHandlers = this.streamMessageController.toStreamerHandlers;
-        toStreamerHandlers.get('KeyDown')?.([this.getKeycode(keyboardEvent), keyboardEvent.repeat ? 1 : 0]);
+        toStreamerHandlers.get('KeyDown')?.([keyCode, keyboardEvent.repeat ? 1 : 0]);
         const activeKeys = this.activeKeys.getActiveKeys();
         activeKeys.push(keyCode);
 
@@ -66,10 +73,6 @@ export class KeyboardController implements IInputController {
                 })
             );
         }
-
-        if (this.config.isFlagEnabled(Flags.SuppressBrowserKeys) && this.isKeyCodeBrowserKey(keyCode)) {
-            keyboardEvent.preventDefault();
-        }
     }
 
     private handleOnKeyUp(keyboardEvent: KeyboardEvent) {
@@ -78,17 +81,23 @@ export class KeyboardController implements IInputController {
             return;
         }
 
-        const toStreamerHandlers = this.streamMessageController.toStreamerHandlers;
-        toStreamerHandlers.get('KeyUp')?.([keyCode]);
-
         if (this.config.isFlagEnabled(Flags.SuppressBrowserKeys) && this.isKeyCodeBrowserKey(keyCode)) {
             keyboardEvent.preventDefault();
+        }
+        if (!this.isFunctionKey(keyCode)) {
+            this.streamMessageController.toStreamerHandlers.get('KeyUp')?.([keyCode]);
         }
     }
 
     private handleOnKeyPress(keyboardEvent: KeyboardEvent) {
         const keyCode = this.getKeycode(keyboardEvent);
         if (!keyCode) {
+            return;
+        }
+
+        // Printable characters can have the same charCode as F1-F12 (e.g. 'p' is 112).
+        const physicalKey = CodeToKeyCode[keyboardEvent.code] ?? CodeToKeyCode[keyboardEvent.key];
+        if (this.isFunctionKey(physicalKey ?? (keyboardEvent.charCode ? 0 : keyCode))) {
             return;
         }
 
@@ -145,12 +154,16 @@ export class KeyboardController implements IInputController {
         }
     }
 
+    private isFunctionKey(keyCode: number) {
+        return keyCode >= CodeToKeyCode['F1'] && keyCode <= CodeToKeyCode['F12'];
+    }
+
     /**
      * Browser keys do not have a charCode so we only need to test keyCode.
      * @param keyCode - the browser keycode number
      */
     private isKeyCodeBrowserKey(keyCode: number) {
         // Function keys or tab key are considered "browser keys" that we may wish to suppress by preventing them being process by browser.
-        return (keyCode >= 112 && keyCode <= 123) || keyCode === 9;
+        return this.isFunctionKey(keyCode) || keyCode === 9;
     }
 }

@@ -6,7 +6,7 @@ import { StreamerConnection } from './StreamerConnection';
 import { PlayerConnection } from './PlayerConnection';
 import { SFUConnection } from './SFUConnection';
 import { Logger } from './Logger';
-import { StreamerRegistry, StreamerIdAuthorizer } from './StreamerRegistry';
+import { IStreamer, StreamerRegistry, StreamerIdAuthorizer } from './StreamerRegistry';
 import { PlayerRegistry } from './PlayerRegistry';
 import {
     Messages,
@@ -50,6 +50,9 @@ export interface IServerConfig {
 
     // Max number of players per streamer.
     maxSubscribers?: number;
+
+    // Restricts which streamers a browser can discover or subscribe to, including legacy subscriptions.
+    canSubscribe?: (playerId: string, streamer: IStreamer) => boolean;
 
     // Idle timeout in milliseconds after which a player that has stopped responding to keepalive
     // pings is forcibly disconnected. 0 (the default) disables the check.

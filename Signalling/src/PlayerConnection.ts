@@ -134,8 +134,14 @@ export class PlayerConnection implements IPlayer, LogUtils.IMessageLogger {
             Logger.warn(
                 `Player ${this.playerId} tried to send to a streamer but they're not subscribed to any.`
             );
-            const streamerId = this.server.streamerRegistry.getFirstStreamerId();
+            const streamerId = this.server.config.canSubscribe
+                ? this.availableStreamers()[0]?.streamerId
+                : this.server.streamerRegistry.getFirstStreamerId();
             if (!streamerId) {
+                if (this.server.config.canSubscribe) {
+                    this.onListStreamers();
+                    return;
+                }
                 Logger.error('There are no streamers to force a subscription. Disconnecting.');
                 this.disconnect();
                 return;
@@ -162,6 +168,14 @@ export class PlayerConnection implements IPlayer, LogUtils.IMessageLogger {
 
     private subscribe(streamerId: string) {
         const streamer = this.server.streamerRegistry.find(streamerId);
+        if (
+            streamer &&
+            this.server.config.canSubscribe &&
+            !this.server.config.canSubscribe(this.playerId, streamer)
+        ) {
+            this.onListStreamers();
+            return;
+        }
         if (!streamer) {
             Logger.error(
                 `subscribe: Player ${this.playerId} tried to subscribe to a non-existent streamer ${streamerId}`
@@ -247,11 +261,16 @@ export class PlayerConnection implements IPlayer, LogUtils.IMessageLogger {
         this.unsubscribe();
     }
 
-    private onListStreamers(_message: Messages.listStreamers): void {
+    private availableStreamers(): IStreamer[] {
+        return this.server.streamerRegistry.streamers.filter(
+            (streamer) =>
+                streamer.streaming && (this.server.config.canSubscribe?.(this.playerId, streamer) ?? true)
+        );
+    }
+
+    private onListStreamers(): void {
         const listMessage = MessageHelpers.createMessage(Messages.streamerList, {
-            ids: this.server.streamerRegistry.streamers
-                .filter((streamer) => streamer.streaming)
-                .map((streamer) => streamer.streamerId)
+            ids: this.availableStreamers().map((streamer) => streamer.streamerId)
         });
         this.sendMessage(listMessage);
     }

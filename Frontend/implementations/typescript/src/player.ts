@@ -2,7 +2,7 @@
 
 export * from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.8';
 export * from '@epicgames-ps/lib-pixelstreamingfrontend-ui-ue5.8';
-import { Config, PixelStreaming, Logger, LogLevel } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.8';
+import { Config, Flags, PixelStreaming, Logger, LogLevel } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.8';
 import { Application, PixelStreamingApplicationStyle } from '@epicgames-ps/lib-pixelstreamingfrontend-ui-ue5.8';
 const PixelStreamingApplicationStyles =
     new PixelStreamingApplicationStyle();
@@ -21,6 +21,7 @@ document.body.onload = function() {
 
 	// Create the main Pixel Streaming object for interfacing with the web-API of Pixel Streaming
 	const stream = new PixelStreaming(config);
+	stream.config.setFlagEnabled(Flags.MatchViewportResolution, true);
 
 	const application = new Application({
 		stream,
